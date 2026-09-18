@@ -1141,27 +1141,34 @@ a specific reason for each failure case. -}
 gitRepoStatus :: FilePath -> IO GitRepoStatus
 gitRepoStatus root = do
   let dotGit = root </> ".git"
-  isDir  <- Dir.doesDirectoryExist dotGit
-  isFile <- Dir.doesFileExist dotGit
+  isDir <- Dir.doesDirectoryExist dotGit
   if isDir
     then pure GitRepoDir
-    else if not isFile
-      then pure GitRepoMissing
-      else do
-        contentsM <- readUtf8Text dotGit
-        case contentsM >>= parseGitdirPointer of
-          Nothing ->
-            pure $ GitRepoWorktreeBroken
-              ("Found a `.git` file at " <> dotGit <>
-               " but it does not contain the expected `gitdir: <path>` pointer.")
-          Just rel -> do
-            let target = if FP.isAbsolute rel then rel else root </> rel
-            targetExists <- Dir.doesDirectoryExist target
-            if targetExists
-              then pure (GitRepoWorktree target)
-              else pure $ GitRepoWorktreeBroken
-                ("The `.git` file at " <> dotGit <>
-                 " points to a git directory that does not exist: " <> target)
+    else do
+      isFile <- Dir.doesFileExist dotGit
+      if not isFile
+        then pure GitRepoMissing
+        else do
+          contentsM <- readUtf8Text dotGit
+          case contentsM of
+            Nothing ->
+              pure $ GitRepoWorktreeBroken
+                ("Found a `.git` file at " <> dotGit <>
+                 " but it could not be read as UTF-8 text.")
+            Just contents ->
+              case parseGitdirPointer contents of
+                Nothing ->
+                  pure $ GitRepoWorktreeBroken
+                    ("Found a `.git` file at " <> dotGit <>
+                     " but it does not contain the expected `gitdir: <path>` pointer.")
+                Just rel -> do
+                  let target = if FP.isAbsolute rel then rel else root </> rel
+                  targetExists <- Dir.doesDirectoryExist target
+                  if targetExists
+                    then pure (GitRepoWorktree target)
+                    else pure $ GitRepoWorktreeBroken
+                      ("The `.git` file at " <> dotGit <>
+                       " points to a git directory that does not exist: " <> target)
 
 
 {-| Parse the `gitdir: <path>` pointer from the first line of a worktree `.git`
